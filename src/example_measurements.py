@@ -116,15 +116,15 @@ def LR_reconstruction(N,S,P,f_guess=None,iter_max=1000):
 	return f
 
 # Number of measurements
-n_d = 3
+n_d = 30
 
 # x positions
 #x_arr = np.array([5.0,10.0,20.0])
-x_arr = np.linspace(1.0,50.0,5)
+x_arr = np.linspace(5.0,30.0,n_d)
 print(x_arr)
 
 # Normalised arrival time array
-nT = 500
+nT = 50
 T  = np.linspace(-20,20.0,nT)
 tmin = -1.0; tmax = 1.0
 
@@ -147,11 +147,12 @@ ax1.set_xlabel(r"$T'=T-\frac{x}{v_0}$")
 
 P_mn,dims,arrays = init_recon(x_arr,T,vmin,vmax,tmin,tmax)
 S_m = np.einsum('ij,j',P_mn,F_discrete.flatten())
+f_proxy = np.einsum('ij,j',P_mn.T,S_m).reshape(dims[-2],dims[-1])
 
 v,t      = arrays
 v2,t2    = np.meshgrid(v,t,indexing='ij')
 f_guess  = double_gaussian_f(1.0,0.2,0.0,0.2)(v2,t2).flatten()
-f_n = LR_reconstruction(np.sum(S_m)/x_arr.shape[0],S_m,P_mn,f_guess=f_guess)
+f_n = LR_reconstruction(np.sum(S_m)/x_arr.shape[0],S_m,P_mn)
 
 S_m = np.einsum('ij,j',P_mn,f_n)
 S_m = S_m.reshape(x_arr.shape[0],T.shape[0])
@@ -170,7 +171,7 @@ ax1 = fig.add_subplot(121)
 ax2 = fig.add_subplot(122)
 
 im1 = ax1.imshow(f_recon,origin='lower',extent=[t[0],t[-1],v[0],v[-1]])
-im2 = ax2.imshow(f_recon-F_discrete,origin='lower',cmap='coolwarm',extent=[t[0],t[-1],v[0],v[-1]])
+im2 = ax2.imshow(f_proxy,origin='lower',cmap='coolwarm',extent=[t[0],t[-1],v[0],v[-1]])
 ax1.set_xlabel('t')
 ax1.set_ylabel('v')
 
