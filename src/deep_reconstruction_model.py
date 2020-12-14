@@ -7,7 +7,8 @@ from keras.models import Model
 class FormNormalEquations(Layer):
     def __init__(self, **kwargs):
         super(FormNormalEquations, self).__init__(**kwargs)
-        self.lamb = self.add_weight(name='lamb', shape=(1,), initializer='uniform', trainable=True)
+        initializer = tf.keras.initializers.Constant(1e-2)
+        self.lamb = self.add_weight(name='lamb', shape=(1,), initializer=initializer, trainable=True)
 
     def call(self, inputs):
         ATb, Z = inputs
@@ -22,11 +23,11 @@ class Conjugate_Gradient(Layer):
         super(Conjugate_Gradient, self).__init__(**kwargs)
         self.niter = niter
 
-    def call(self, X, M, RHS):
-        r = tf.subtract(RHS,tf.linalg.matvec(M,X))
-        p = tf.identity(r)
-        n = 0
-        while(n < self.niter and tf.reduce_sum(r*r) > 1e-10):
+    def call(self, inputs):
+        X, M, RHS = inputs
+        X = tf.zeros_like(X)
+
+        def body(rTr,X,r,p):
             Ap    = tf.linalg.matvec(M,p)
             rTr   = tf.reduce_sum(r*r)
             alpha = rTr/tf.reduce_sum(p*Ap)
@@ -34,8 +35,15 @@ class Conjugate_Gradient(Layer):
             r     = r-alpha*Ap
             beta  = tf.reduce_sum(r*r)/rTr
             p     = r+beta*p
-            n    += 1
-        return X
+            return tf.cast(tf.reduce_sum(r*r),dtype='float32'),X,r,p
+
+        cond = lambda rTr,*_: rTr > 1e-10
+        r = tf.subtract(RHS,tf.linalg.matvec(M,X))
+        p = tf.identity(r)
+        rTr = tf.cast(tf.reduce_sum(r*r),dtype='float32')
+        loopinputs = rTr,X,r,p
+        out  = tf.while_loop(cond,body,loopinputs,name='CGwhile',parallel_iterations=1,maximum_iterations=self.niter)[1]
+        return out
 
 # Construct CNN for image regularisation
 def cnn(n_layers,training):
@@ -50,7 +58,7 @@ def cnn(n_layers,training):
         cnn_layers['bn'+str(n)] = BatchNormalization(trainable = training, axis = -1, name = 'bn'+str(n))
         # Final layer is given no activation
         if(n < n_layers-1):
-            cnn_layers['a'+str(n)] = Activation('relu')
+            cnn_layers['a'+str(n)] = Activation('relu',name='a'+str(n))
     return cnn_layers
 
 # Construct full deep learning model
@@ -62,41 +70,41 @@ def nn_model(input_shape,A_shape,n_layers,n_iter,n_CGiter,training):
     nrows = input_shape[0]
     ncols = input_shape[1]
 
-    flat_layer = Flatten(name='Flatten')
-    resh_layer = Reshape((nrows,ncols,1),name='Reshape')
-    cnn_layers = cnn(n_layers,training)
-    ATb        = flat_layer(X_input)
-    ATA        = tf.matmul(A,A,transpose_a=True)
-    normeq     = FormNormalEquations(name='NormEq')
-    CG_init    = Conjugate_Gradient(5000,name='CG_init')
+    Flat_layer = Flatten(name='Flatten')
+    Resh_layer = Reshape((nrows,ncols,1),name='Reshape')
+    Cnn_layers = cnn(n_layers,training)
+    ATb        = Flat_layer(X_input)
+    ATA        = Lambda(lambda A : tf.matmul(A,A,transpose_a=True),name='ATA')(A)
+    Normeq     = FormNormalEquations(name='NormEq')
+    CG_init    = Conjugate_Gradient(100,name='CG_init')
     CG_layer   = Conjugate_Gradient(n_CGiter,name='CG')
 
-    X = X_input
+    X = Lambda(lambda X : tf.zeros_like(X),name='Input')(X_input)
 
     # Ravel
-    X = flat_layer(X)
+    X = Flat_layer(X)
     # Create normal equations
     RHS = ATb
     M   = ATA
-    # Call conjudate gradient to solve normal equations
-    X = CG_init(X,M,RHS)
+    # Call conjugate gradient to solve normal equations
+    X = CG_init([X,M,RHS])
 
     for k in range(n_iter):
         # Form image
-        Z = resh_layer(X)
+        Z = Resh_layer(X)
         # Calculate prior first
         for n in range(n_layers):
-            Z = cnn_layers['conv'+str(n)](Z)
-            Z = cnn_layers['bn'+str(n)](Z)
+            Z = Cnn_layers['conv'+str(n)](Z)
+            Z = Cnn_layers['bn'+str(n)](Z)
             if(n < n_layers-1):
-                Z = cnn_layers['a'+str(n)](Z)
+                Z = Cnn_layers['a'+str(n)](Z)
         # Ravel
-        Z = flat_layer(Z)
+        Z = Flat_layer(Z)
         # Create normal equations
-        RHS = normeq((ATb,Z))
-        M   = normeq.getM(ATA)
+        RHS = Normeq([ATb,Z])
+        M   = Lambda(lambda ATA : Normeq.getM(ATA),name='Get_M_'+str(k))(ATA)
         # Call conjudate gradient to solve normal equations
-        X = CG_layer(X,M,RHS)
+        X = CG_layer([X,M,RHS])
 
     # Create model. This creates your Keras model instance, you'll use this instance to train/test the model.
     model = Model(inputs = [X_input,A] , outputs = X, name='MoDL')

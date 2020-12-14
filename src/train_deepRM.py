@@ -56,10 +56,10 @@ def init_recon(x_arr,T,vmin,vmax,tmin,tmax,n_v=100,n_t=100):
 	return P,(n_x,n_T,n_v,n_t),(v,t)
 
 N_train = 10
-n_v = 60
-n_t = 60
+n_v = 40
+n_t = 40
 n_x = 3
-n_T = 100
+n_T = 200
 
 vmin = 0.5*v0; vmax = 1.5*v0
 tmin = -1.0; tmax = 1.0
@@ -89,13 +89,14 @@ for i in range(n_x):
 	plt.plot(T,S_m.reshape(n_x,n_T)[i,:],'x')
 
 n_iters = 1
-n_cnn_layers = 2
+n_cnn_layers = 3
 
 input_shape = (n_v,n_t,1)
 A_shape     = (n_x*n_T,n_v*n_t)
 
 model_deep  = nn_model(input_shape,A_shape,n_cnn_layers,n_iters,10,training=True)
 model_deep.compile(optimizer='adam',loss='mean_squared_error')
+print(model_deep.summary())
 model_deep.fit([X_train,A_train],y_train,epochs=10,batch_size=10)
 y_pred = model_deep.predict([X_train[0:1,...],A_train[0:1,...]])
 
@@ -122,6 +123,6 @@ im3 = ax3.imshow(f_train,origin='lower',extent=[t[0],t[-1],v[0],v[-1]])
 
 fig.colorbar(im1,ax=ax1,orientation='horizontal')
 fig.colorbar(im2,ax=ax2,orientation='horizontal')
-fig.colorbar(im2,ax=ax3,orientation='horizontal')
+fig.colorbar(im3,ax=ax3,orientation='horizontal')
 
 plt.show()
