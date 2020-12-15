@@ -1,7 +1,8 @@
-from deep_reconstruction_model import nn_model
+from deep_reconstruction_model import *
 import numpy as np
 import tensorflow as tf
 from keras.utils import plot_model
+from keras.models import load_model
 import matplotlib.pyplot as plt
 
 v0 = 1.0
@@ -25,12 +26,15 @@ def init_recon(x_arr,T,vmin,vmax,tmin,tmax,n_v=100,n_t=100):
 	
 	dv = v[1]-v[0]
 	dt = t[1]-t[0]
-	dT = T[1]-T[0]
 
-	T3ph_norm,v3ph,t3ph = np.meshgrid(T+0.5*dT,v+0.5*dv,t+0.5*dt,indexing='ij')
-	T3mh_norm,v3mh,t3mh = np.meshgrid(T-0.5*dT,v-0.5*dv,t-0.5*dt,indexing='ij')
 
 	for i,x in enumerate(x_arr):
+		T_norm = T*(1.0+(x/vmin-x/vmax)/(tmax-tmin))
+
+		dT = T_norm[1]-T_norm[0]
+
+		T3ph_norm,v3ph,t3ph = np.meshgrid(T_norm+0.5*dT,v+0.5*dv,t+0.5*dt,indexing='ij')
+		T3mh_norm,v3mh,t3mh = np.meshgrid(T_norm-0.5*dT,v-0.5*dv,t-0.5*dt,indexing='ij')
 		T3ph = T3ph_norm+x/v0
 		T3mh = T3mh_norm+x/v0
 		for n in range(4):
@@ -48,14 +52,14 @@ def init_recon(x_arr,T,vmin,vmax,tmin,tmax,n_v=100,n_t=100):
 			P[i,mask] += (-1.0)**n*(np.log((a_iln[mask]-y_kph[mask])/a_iln[mask])+y_kph[mask]/(a_iln[mask]-y_kph[mask]))
 			mask = y_kmh > 0.0
 			P[i,mask] -= (-1.0)**n*(np.log((a_iln[mask]-y_kmh[mask])/a_iln[mask])+y_kmh[mask]/(a_iln[mask]-y_kmh[mask]))
-		P[i,...] *= x/dT
+		P[i,...] *= x/dT*(1.0+(x/vmin-x/vmax)/(tmax-tmin))
 
 	P = P.reshape(n_x,n_T,n_v*n_t)
 	P = P.reshape(-1,P.shape[-1])
 
 	return P,(n_x,n_T,n_v,n_t),(v,t)
 
-N_train = 10
+N_train = 1
 n_v = 40
 n_t = 40
 n_x = 3
@@ -64,8 +68,8 @@ n_T = 200
 vmin = 0.5*v0; vmax = 1.5*v0
 tmin = -1.0; tmax = 1.0
 
-x_arr = np.linspace(1e-3,5.0,n_x)
-T     = np.linspace(-5.0,5.0,n_T)
+x_arr = np.array([1e-3,5.0,100.0])
+T     = np.linspace(tmin,tmax,n_T)
 
 A,dims,arrs = init_recon(x_arr,T,vmin,vmax,tmin,tmax,n_v=n_v,n_t=n_t)
 v,t         = arrs[0],arrs[1]
@@ -88,17 +92,29 @@ fig = plt.figure()
 for i in range(n_x):
 	plt.plot(T,S_m.reshape(n_x,n_T)[i,:],'x')
 
-n_iters = 1
+n_epochs     = 10
+b_size       = 10
+nCGiter      = 10
 n_cnn_layers = 3
+input_shape  = (n_v,n_t,1)
+A_shape      = (n_x*n_T,n_v*n_t)
 
-input_shape = (n_v,n_t,1)
-A_shape     = (n_x*n_T,n_v*n_t)
+# Training model, single iteration
+# model_deep  = nn_model(input_shape,A_shape,n_cnn_layers,1,nCGiter,training=True)
+# model_deep.compile(optimizer='adam',loss='mean_squared_error')
+# # Load previously trained weights
+# model_deep.load_weights('../models/DeepModelTrain.h5')
+# model_deep.fit([X_train,A_train],y_train,epochs=n_epochs,batch_size=b_size)
+# # Save new weights
+# model_deep.save_weights('../models/DeepModelTrain.h5')
 
-model_deep  = nn_model(input_shape,A_shape,n_cnn_layers,n_iters,10,training=True)
-model_deep.compile(optimizer='adam',loss='mean_squared_error')
-print(model_deep.summary())
-model_deep.fit([X_train,A_train],y_train,epochs=10,batch_size=10)
-y_pred = model_deep.predict([X_train[0:1,...],A_train[0:1,...]])
+# Loaded model, multiple iterations
+n_iters = 10
+model_deep_load = nn_model(input_shape,A_shape,n_cnn_layers,n_iters,nCGiter,training=False)
+model_deep_load.compile(optimizer='adam',loss='mean_squared_error')
+model_deep_load.load_weights('../models/DeepModelTrain.h5')
+
+y_pred = model_deep_load.predict([X_train[0:1,...],A_train[0:1,...]])
 
 model_CG  = nn_model(input_shape,A_shape,0,0,10,training=True)
 model_CG.compile(optimizer='adam',loss='mean_squared_error')

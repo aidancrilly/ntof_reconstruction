@@ -11,11 +11,8 @@ class FormNormalEquations(Layer):
         self.lamb = self.add_weight(name='lamb', shape=(1,), initializer=initializer, trainable=True)
 
     def call(self, inputs):
-        ATb, Z = inputs
-        return tf.add(ATb,tf.multiply(self.lamb,Z))
-
-    def getM(self, ATA):
-        return tf.add(ATA,tf.multiply(self.lamb,tf.eye(ATA.shape[-1])))
+        ATb, ATA, Z = inputs
+        return tf.add(ATb,tf.multiply(self.lamb,Z)),tf.add(ATA,tf.multiply(self.lamb,tf.eye(ATA.shape[-1])))
 
 # Custom keras layer to solve normal equation using Conjugate Gradients method
 class Conjugate_Gradient(Layer):
@@ -25,7 +22,7 @@ class Conjugate_Gradient(Layer):
 
     def call(self, inputs):
         X, M, RHS = inputs
-        X = tf.zeros_like(X)
+        #X = tf.zeros_like(X)
 
         def body(rTr,X,r,p):
             Ap    = tf.linalg.matvec(M,p)
@@ -44,6 +41,14 @@ class Conjugate_Gradient(Layer):
         loopinputs = rTr,X,r,p
         out  = tf.while_loop(cond,body,loopinputs,name='CGwhile',parallel_iterations=1,maximum_iterations=self.niter)[1]
         return out
+
+    def get_config(self):
+        config = {
+            'niter': self.niter
+            }
+        base_config = super(Conjugate_Gradient, self).get_config() 
+
+        return dict(list(base_config.items()) + list(config.items()))
 
 # Construct CNN for image regularisation
 def cnn(n_layers,training):
@@ -64,8 +69,8 @@ def cnn(n_layers,training):
 # Construct full deep learning model
 def nn_model(input_shape,A_shape,n_layers,n_iter,n_CGiter,training):
     # Define the input placeholder as a tensor with shape input_shape
-    X_input = Input(input_shape)
-    A       = Input(A_shape)
+    X_input = Input(input_shape,name='X')
+    A       = Input(A_shape,name='A')
 
     nrows = input_shape[0]
     ncols = input_shape[1]
@@ -101,8 +106,7 @@ def nn_model(input_shape,A_shape,n_layers,n_iter,n_CGiter,training):
         # Ravel
         Z = Flat_layer(Z)
         # Create normal equations
-        RHS = Normeq([ATb,Z])
-        M   = Lambda(lambda ATA : Normeq.getM(ATA),name='Get_M_'+str(k))(ATA)
+        RHS, M = Normeq([ATb,ATA,Z])
         # Call conjudate gradient to solve normal equations
         X = CG_layer([X,M,RHS])
 
